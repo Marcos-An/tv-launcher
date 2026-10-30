@@ -9,14 +9,18 @@ Projeto experimental, feito para navegação com controle remoto. É um aplicati
 ## Recursos
 
 - Banners obtidos dos aplicativos instalados; nenhuma arte extraída de terceiros acompanha o repositório.
-- Carrosséis circulares: a seleção percorre os cartões visíveis antes de a fileira rolar.
+- Carrosséis com início e fim: a seleção percorre os cartões visíveis antes de a fileira rolar e para nas bordas.
+- Som de navegação do sistema ao mover a seleção e ao confirmar.
+- Cada fileira lembra a posição selecionada ao subir e descer.
+- Cartão "Todos os apps" no fim da fileira, com todos os apps de TV instalados.
+- Lista atualizada quando um app é instalado, removido ou desativado.
 - Degradê que acompanha o aplicativo selecionado.
 - Ordem dos apps ajustada por contagem local de aberturas.
 - Até dez itens de Watch Next, incluindo CONTINUE e NEXT, ordenados pela atividade publicada pelo app.
 - Capas proporcionais, play central, links de retomada e atualização quando o provider muda.
 - Nome de perfil editável e acesso às configurações da TV.
 
-A lista de aplicativos é uma seleção de serviços de entretenimento: somente os pacotes dessa seleção encontrados na TV aparecem. Ela não instala serviços de streaming nem inclui assinaturas. Para adaptar a seleção, edite `catalog` em [MainActivity.java](app/src/main/java/org/example/tvlauncher/MainActivity.java) e confira o identificador do pacote instalado.
+A lista de aplicativos é uma seleção de serviços de entretenimento: somente os pacotes dessa seleção encontrados na TV aparecem na fileira; os demais ficam em "Todos os apps". Ela não instala serviços de streaming nem inclui assinaturas. Para adaptar a seleção, edite `catalog` em [MainActivity.java](app/src/main/java/org/example/tvlauncher/MainActivity.java) e confira o identificador do pacote instalado.
 
 ## Compilar no Windows
 
@@ -71,7 +75,7 @@ A desinstalação remove as preferências locais deste launcher. Ela não remove
 
 ## Navegação
 
-- Direita/esquerda: percorrem o carrossel; a fileira rola quando a seleção alcança a borda.
+- Direita/esquerda: percorrem o carrossel; a fileira rola quando a seleção alcança a borda e para no primeiro e no último cartão.
 - Cima/baixo: alternam entre as áreas da tela.
 - OK: abre o app, tenta retomar o conteúdo ou ativa o controle selecionado.
 - Configurações: abre os ajustes do Android; perfil: permite editar o nome local.

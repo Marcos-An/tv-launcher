@@ -78,6 +78,12 @@ public class MainActivity extends Activity {
     loadApps();
     home = new Home();
     setContentView(home);
+    IntentFilter changes = new IntentFilter();
+    changes.addAction(Intent.ACTION_PACKAGE_ADDED);
+    changes.addAction(Intent.ACTION_PACKAGE_REMOVED);
+    changes.addAction(Intent.ACTION_PACKAGE_CHANGED);
+    changes.addDataScheme("package");
+    registerReceiver(packages, changes);
     watchObserver =
         new android.database.ContentObserver(handler) {
           @Override
@@ -117,8 +123,29 @@ public class MainActivity extends Activity {
     handler.removeCallbacks(tick);
   }
 
+  // Posters are only needed while the home is on screen; an app in front gets the memory back.
+  @Override
+  public void onTrimMemory(int level) {
+    super.onTrimMemory(level);
+    if (level >= TRIM_MEMORY_UI_HIDDEN) artwork.clear();
+  }
+
+  final BroadcastReceiver packages =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          loadApps();
+          sortApps();
+          loadWatch();
+          col = Math.max(0, Math.min(col, count(row) - 1));
+          home.carouselIndex = Math.min(home.carouselIndex, apps.size());
+          home.invalidate();
+        }
+      };
+
   @Override
   public void onDestroy() {
+    unregisterReceiver(packages);
     if (watchObserver != null) getContentResolver().unregisterContentObserver(watchObserver);
     handler.removeCallbacks(refreshWatch);
     images.shutdownNow();
@@ -138,7 +165,7 @@ public class MainActivity extends Activity {
       new Runnable() {
         public void run() {
           if (home != null) home.invalidate();
-          handler.postDelayed(this, 60000);
+          handler.postDelayed(this, 60000 - System.currentTimeMillis() % 60000);
         }
       };
 
@@ -271,7 +298,8 @@ public class MainActivity extends Activity {
             opts.inJustDecodeBounds = true;
             BitmapFactory.decodeByteArray(data, 0, data.length, opts);
             int sample = 1;
-            while (opts.outWidth / sample > 800 || opts.outHeight / sample > 500) sample *= 2;
+            // Cards are 318x132 at 720p; 640x320 still covers them sharply at 1080p.
+            while (opts.outWidth / sample > 640 || opts.outHeight / sample > 320) sample *= 2;
             opts.inJustDecodeBounds = false;
             opts.inSampleSize = sample;
             opts.inPreferredConfig = Bitmap.Config.RGB_565;
@@ -384,7 +412,7 @@ public class MainActivity extends Activity {
 
   int count(int r) {
     if (r == 0) return 2;
-    if (r == 1) return apps.size();
+    if (r == 1) return apps.size() + 1; // last card opens "Todos os apps"
     if (r == 2) return watches.size();
     return 0;
   }
@@ -394,28 +422,39 @@ public class MainActivity extends Activity {
     if (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT) {
       int n = count(row);
       int direction = key == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1;
-      if (n > 0) {
-        col = (col + direction + n) % n;
-        home.ensureWindow(row, col, direction);
+      int next = Math.max(0, Math.min(col + direction, n - 1));
+      if (n > 0 && next != col) {
+        col = next;
+        home.ensureWindow(row, col);
+        home.playSoundEffect(
+            direction > 0
+                ? SoundEffectConstants.NAVIGATION_RIGHT
+                : SoundEffectConstants.NAVIGATION_LEFT);
       }
       home.invalidate();
       return true;
     }
     if (key == KeyEvent.KEYCODE_DPAD_UP) {
-      row = Math.max(0, row - 1);
-      col = Math.max(0, Math.min(col, count(row) - 1));
+      if (row > 0) {
+        home.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
+        enterRow(row - 1);
+      }
       home.invalidate();
       return true;
     }
     if (key == KeyEvent.KEYCODE_DPAD_DOWN) {
-      if (row == 0) row = 1;
-      else if (row == 1 && !watches.isEmpty()) row = 2;
-      col = Math.max(0, Math.min(col, count(row) - 1));
+      if (row == 0 || (row == 1 && !watches.isEmpty())) {
+        home.playSoundEffect(SoundEffectConstants.NAVIGATION_DOWN);
+        enterRow(row + 1);
+      }
       home.invalidate();
       return true;
     }
     if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
-      if (e.getRepeatCount() == 0) activate();
+      if (e.getRepeatCount() == 0) {
+        home.playSoundEffect(SoundEffectConstants.CLICK);
+        activate();
+      }
       return true;
     }
     if (key == KeyEvent.KEYCODE_MENU) {
@@ -442,12 +481,60 @@ public class MainActivity extends Activity {
     return false;
   }
 
+  // Each row keeps its own selection, so moving between rows returns to where you were.
+  int topCol = 0;
+
+  void enterRow(int r) {
+    if (row == 0) topCol = col;
+    else if (row == 1) home.carouselIndex = col;
+    else if (row == 2) home.watchCarouselIndex = col;
+    row = r;
+    col = r == 0 ? topCol : r == 1 ? home.carouselIndex : home.watchCarouselIndex;
+    col = Math.max(0, Math.min(col, count(row) - 1));
+  }
+
+  void allApps() {
+    PackageManager pm = getPackageManager();
+    final ArrayList<ResolveInfo> found = new ArrayList<>();
+    for (ResolveInfo r :
+        pm.queryIntentActivities(
+            new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0))
+      if (!r.activityInfo.packageName.equals(getPackageName())) found.add(r);
+    final ArrayList<String> labels = new ArrayList<>();
+    for (ResolveInfo r : found) labels.add(String.valueOf(r.loadLabel(pm)));
+    Integer[] order = new Integer[found.size()];
+    for (int i = 0; i < order.length; i++) order[i] = i;
+    Arrays.sort(order, (a, b) -> labels.get(a).compareToIgnoreCase(labels.get(b)));
+    String[] names = new String[order.length];
+    for (int i = 0; i < order.length; i++) names[i] = labels.get(order[i]);
+    final Integer[] sorted = order;
+    new AlertDialog.Builder(this)
+        .setTitle("Todos os apps")
+        .setItems(
+            names,
+            (d, i) -> {
+              ActivityInfo info = found.get(sorted[i]).activityInfo;
+              try {
+                startActivity(
+                    new Intent(Intent.ACTION_MAIN)
+                        .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                        .setClassName(info.packageName, info.name)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+              } catch (Exception ex) {
+                toast("Não foi possível abrir " + names[i]);
+              }
+            })
+        .setNegativeButton("Voltar", null)
+        .show();
+  }
+
   void activate() {
     if (row == 0) {
       if (col == 0) settingsPanel();
       else profilePanel();
     } else if (row == 1) {
       if (col < apps.size()) launch(apps.get(col));
+      else allApps();
     } else if (row == 2 && col < watches.size()) {
       Watch w = watches.get(col);
       try {
@@ -477,15 +564,14 @@ public class MainActivity extends Activity {
       row = 1;
     }
 
-    void ensureWindow(int rail, int selected, int direction) {
-      int n = rail == 1 ? apps.size() : rail == 2 ? watches.size() : 0;
+    void ensureWindow(int rail, int selected) {
+      int n = count(rail);
       if (n == 0) return;
       int capacity = Math.min(n, rail == 1 ? 5 : 3);
       int start = rail == 1 ? appWindowStart : watchWindowStart;
-      start = ((start % n) + n) % n;
-      int relative = (selected - start + n) % n;
-      if (relative >= capacity)
-        start = direction < 0 ? selected : (selected - capacity + 1 + n) % n;
+      start = Math.max(0, Math.min(start, n - capacity));
+      if (selected < start) start = selected;
+      else if (selected >= start + capacity) start = selected - capacity + 1;
       if (rail == 1) appWindowStart = start;
       else watchWindowStart = start;
     }
@@ -589,20 +675,24 @@ public class MainActivity extends Activity {
       focus(1174, 9, 42, 40, 0, 1);
 
       contentOffset = 0;
-      int selected = apps.isEmpty() ? 0 : Math.min(col, apps.size() - 1);
+      int selected = Math.min(col, apps.size());
       if (row != 1) selected = carouselIndex;
       else carouselIndex = selected;
-      ensureWindow(1, selected, 0);
+      ensureWindow(1, selected);
       text("Aplicativos", 110, 324, 15, Color.rgb(222, 224, 226), false);
-      if (!apps.isEmpty()) text((selected + 1) + " / " + apps.size(), 1172, 324, 10, muted, false);
       int clip = c.save();
       c.clipRect(102, 335, 1308, 461);
-      int visible = Math.min(6, apps.size());
+      int visible = Math.min(6, apps.size() + 1 - appWindowStart);
       for (int slot = 0; slot < visible; slot++) {
-        int index = (appWindowStart + slot) % apps.size();
-        App a = apps.get(index);
+        int index = appWindowStart + slot;
         float x = 110 + slot * 204;
         rect(x, 344, 184, 104, Color.rgb(26, 28, 34), 6);
+        if (index == apps.size()) {
+          center("Todos os apps", x + 92, 401, 13, Color.rgb(222, 224, 226));
+          focus(x, 344, 184, 104, 1, index);
+          continue;
+        }
+        App a = apps.get(index);
         if (a.banner != null) {
           int save = c.save();
           Path mask = new Path();
@@ -638,12 +728,11 @@ public class MainActivity extends Activity {
       } else {
         if (row == 2) watchCarouselIndex = Math.min(col, n - 1);
         watchCarouselIndex = Math.min(watchCarouselIndex, n - 1);
-        ensureWindow(2, watchCarouselIndex, 0);
-        text((watchCarouselIndex + 1) + " / " + n, 1172, 507, 10, muted, false);
+        ensureWindow(2, watchCarouselIndex);
         int railClip = c.save();
         c.clipRect(102, 520, 1308, 670);
-        for (int slot = 0; slot < Math.min(4, n); slot++) {
-          int i = (watchWindowStart + slot) % n;
+        for (int slot = 0; slot < Math.min(4, n - watchWindowStart); slot++) {
+          int i = watchWindowStart + slot;
           float x = 110 + slot * 336;
           Watch w = watches.get(i);
           rect(x, 528, 318, 132, Color.argb(18, 255, 255, 255), 13);
