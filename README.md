@@ -15,14 +15,14 @@ Projeto experimental, feito para navegação com controle remoto. É um aplicati
 - Cartão "Todos os apps" no fim da fileira, com todos os apps de TV instalados.
 - Lista atualizada quando um app é instalado, removido ou desativado.
 - Degradê que acompanha o aplicativo selecionado.
-- Ordem dos apps ajustada por contagem local de aberturas.
+- Ordem dos apps ajustada pelo uso local, com peso maior para aberturas recentes.
 - Até dez itens de Watch Next, incluindo CONTINUE e NEXT, ordenados pela atividade publicada pelo app.
 - Capas proporcionais, play central, links de retomada e atualização quando o provider muda.
 - Nome de perfil editável e acesso às configurações da TV.
 
 A lista de aplicativos é uma seleção de serviços de entretenimento: somente os pacotes dessa seleção encontrados na TV aparecem na fileira; os demais ficam em "Todos os apps". Ela não instala serviços de streaming nem inclui assinaturas. Para adaptar a seleção, edite `catalog` em [MainActivity.java](app/src/main/java/org/example/tvlauncher/MainActivity.java) e confira o identificador do pacote instalado.
 
-## Compilar no Windows
+## Compilar
 
 Requisitos: JDK 17 ou 21 e Android SDK com plataforma android-35 e Build Tools 35.0.0. O aplicativo usa minSdk 26 e targetSdk 28, testado em Android TV 9. Não é uma configuração validada para publicação na Play Store.
 
@@ -30,6 +30,22 @@ Defina JAVA_HOME e ANDROID_SDK_ROOT, depois execute:
 
 ```powershell
 ./scripts/build.ps1
+```
+
+No macOS ou Linux:
+
+```bash
+./scripts/build.sh
+```
+
+No macOS, com Homebrew, os requisitos podem ser instalados assim:
+
+```bash
+brew install openjdk@17
+brew install --cask android-commandlinetools
+export JAVA_HOME=$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home
+export ANDROID_SDK_ROOT=$(brew --prefix)/share/android-commandlinetools
+sdkmanager --sdk_root=$ANDROID_SDK_ROOT "build-tools;35.0.0" "platforms;android-35"
 ```
 
 O APK de desenvolvimento fica em .build/tv-launcher-debug.apk. Uma chave de desenvolvimento é gerada em .local/ e não deve ser versionada. O pacote genérico org.example.tvlauncher pode coexistir com outras versões locais; este código não inclui a chave de assinatura de nenhuma instalação anterior.

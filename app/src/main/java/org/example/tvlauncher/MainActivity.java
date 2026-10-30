@@ -327,7 +327,7 @@ public class MainActivity extends Activity {
         apps,
         (a, b) -> {
           int usage =
-              Integer.compare(prefs.getInt("uses_" + b.pkg, 0), prefs.getInt("uses_" + a.pkg, 0));
+              Float.compare(score(b.pkg), score(a.pkg));
           if (usage != 0) return usage;
           return baseOrder(a.pkg) - baseOrder(b.pkg);
         });
@@ -345,8 +345,19 @@ public class MainActivity extends Activity {
     return 99;
   }
 
+  // Each launch fades every score by 10%, so recent habits outrank an old binge.
+  float score(String pkg) {
+    return prefs.contains("score_" + pkg)
+        ? prefs.getFloat("score_" + pkg, 0)
+        : prefs.getInt("uses_" + pkg, 0);
+  }
+
   void remember(App a) {
-    prefs.edit().putInt("uses_" + a.pkg, prefs.getInt("uses_" + a.pkg, 0) + 1).apply();
+    SharedPreferences.Editor edit = prefs.edit();
+    for (App other : apps)
+      edit.putFloat(
+          "score_" + other.pkg, score(other.pkg) * 0.9f + (other.pkg.equals(a.pkg) ? 1 : 0));
+    edit.apply();
   }
 
   void launch(App a) {
@@ -555,6 +566,30 @@ public class MainActivity extends Activity {
         muted = Color.rgb(139, 143, 151),
         lime = Color.rgb(216, 200, 170);
     ArrayList<Hit> hits = new ArrayList<>();
+    // Created once: onDraw runs on every key press.
+    final Locale br = new Locale("pt", "BR");
+    final SimpleDateFormat clock = new SimpleDateFormat("HH:mm", br),
+        day = new SimpleDateFormat("EEEE, d 'de' MMMM", br);
+    final Typeface regular = Typeface.create("sans-serif", 0),
+        medium = Typeface.create("sans-serif-medium", 0);
+    final Path path = new Path();
+    final RectF box = new RectF();
+    final Rect crop = new Rect();
+    final LinearGradient shade =
+        new LinearGradient(
+            0, 570, 0, 660,
+            new int[] {Color.TRANSPARENT, Color.argb(225, 5, 8, 13)},
+            null,
+            Shader.TileMode.CLAMP);
+    RadialGradient ambient;
+    int ambientTone;
+
+    void clip(float x, float y, float w, float h, float radius) {
+      path.reset();
+      box.set(x, y, x + w, y + h);
+      path.addRoundRect(box, radius, radius, Path.Direction.CW);
+      c.clipPath(path);
+    }
 
     Home() {
       super(MainActivity.this);
@@ -584,14 +619,14 @@ public class MainActivity extends Activity {
 
     void text(String s, float x, float y, float size, int color, boolean bold) {
       p.setTypeface(
-          bold ? Typeface.create("sans-serif-medium", 0) : Typeface.create("sans-serif", 0));
+          bold ? medium : regular);
       p.setTextSize(size);
       p.setColor(color);
       c.drawText(s, x, y, p);
     }
 
     void center(String s, float x, float y, float size, int color) {
-      p.setTypeface(Typeface.create("sans-serif", 0));
+      p.setTypeface(regular);
       p.setTextSize(size);
       p.setColor(color);
       c.drawText(s, x - p.measureText(s) / 2, y, p);
@@ -599,7 +634,7 @@ public class MainActivity extends Activity {
 
     String fit(String s, float width, float size) {
       p.setTextSize(size);
-      p.setTypeface(Typeface.create("sans-serif", 0));
+      p.setTypeface(regular);
       if (p.measureText(s) <= width) return s;
       while (s.length() > 1 && p.measureText(s + "…") > width) s = s.substring(0, s.length() - 1);
       return s + "…";
@@ -608,12 +643,9 @@ public class MainActivity extends Activity {
     void icon(App a, float x, float y, float size) {
       if (a == null) return;
       int save = c.save();
-      Path path = new Path();
-      path.addRoundRect(
-          new RectF(x, y, x + size, y + size), size * .2f, size * .2f, Path.Direction.CW);
-      c.clipPath(path);
+      clip(x, y, size, size, size * .2f);
       p.setAlpha(255);
-      c.drawBitmap(a.icon, null, new RectF(x, y, x + size, y + size), p);
+      c.drawBitmap(a.icon, null, box, p);
       c.restoreToCount(save);
     }
 
@@ -647,27 +679,31 @@ public class MainActivity extends Activity {
                   ? ""
                   : apps.get(Math.min(row == 1 ? col : carouselIndex, apps.size() - 1)).pkg);
       p.setAlpha(255);
-      p.setShader(
-          new RadialGradient(
-              880,
-              -120,
-              1150,
-              new int[] {tone, Color.rgb(13, 17, 23)},
-              new float[] {0f, 1f},
-              Shader.TileMode.CLAMP));
+      if (ambient == null || ambientTone != tone) {
+        ambientTone = tone;
+        ambient =
+            new RadialGradient(
+                880,
+                -120,
+                1150,
+                new int[] {tone, Color.rgb(13, 17, 23)},
+                new float[] {0f, 1f},
+                Shader.TileMode.CLAMP);
+      }
+      p.setShader(ambient);
       c.drawRect(27, 0, 1307, 720, p);
       p.setShader(null);
-      String time = new SimpleDateFormat("HH:mm", new Locale("pt", "BR")).format(new Date());
+      Date now = new Date();
+      String time = clock.format(now);
       text(time, 1018, 34, 13, Color.rgb(210, 214, 219), false);
-      String date =
-          new SimpleDateFormat("EEEE, d 'de' MMMM", new Locale("pt", "BR")).format(new Date());
+      String date = day.format(now);
       text(date, 805, 34, 10, muted, false);
       sliders(1113, 19);
       focus(1102, 9, 40, 40, 0, 0);
       rect(1180, 14, 30, 30, Color.rgb(216, 203, 182), 15);
       String profile = prefs.getString("profile_name", "Perfil");
       center(
-          profile.substring(0, 1).toUpperCase(new Locale("pt", "BR")),
+          profile.substring(0, 1).toUpperCase(br),
           1195,
           34,
           11,
@@ -695,12 +731,10 @@ public class MainActivity extends Activity {
         App a = apps.get(index);
         if (a.banner != null) {
           int save = c.save();
-          Path mask = new Path();
-          mask.addRoundRect(new RectF(x, 344, x + 184, 448), 6, 6, Path.Direction.CW);
-          c.clipPath(mask);
+          clip(x, 344, 184, 104, 6);
           p.setAlpha(255);
           p.setFilterBitmap(true);
-          c.drawBitmap(a.banner, null, new RectF(x, 344, x + 184, 448), p);
+          c.drawBitmap(a.banner, null, box, p);
           c.restoreToCount(save);
         } else icon(a, x + 63, 367, 58);
         focus(x, 344, 184, 104, 1, index);
@@ -737,35 +771,24 @@ public class MainActivity extends Activity {
           Watch w = watches.get(i);
           rect(x, 528, 318, 132, Color.argb(18, 255, 255, 255), 13);
           int save = c.save();
-          Path mask = new Path();
-          mask.addRoundRect(new RectF(x, 528, x + 318, 660), 13, 13, Path.Direction.CW);
-          c.clipPath(mask);
+          clip(x, 528, 318, 132, 13);
           Bitmap poster = w.art == null ? null : artwork.get(w.art);
           if (poster != null) {
             p.setAlpha(255);
             float sourceRatio = (float) poster.getWidth() / poster.getHeight(),
                 targetRatio = 318f / 132;
-            Rect source;
             if (sourceRatio > targetRatio) {
               int width = (int) (poster.getHeight() * targetRatio),
                   left = (poster.getWidth() - width) / 2;
-              source = new Rect(left, 0, left + width, poster.getHeight());
+              crop.set(left, 0, left + width, poster.getHeight());
             } else {
               int height = (int) (poster.getWidth() / targetRatio),
                   top = (poster.getHeight() - height) / 2;
-              source = new Rect(0, top, poster.getWidth(), top + height);
+              crop.set(0, top, poster.getWidth(), top + height);
             }
-            c.drawBitmap(poster, source, new RectF(x, 528, x + 318, 660), p);
+            c.drawBitmap(poster, crop, box, p); // box still holds this card from clip()
           }
-          p.setShader(
-              new LinearGradient(
-                  x,
-                  570,
-                  x,
-                  660,
-                  new int[] {Color.TRANSPARENT, Color.argb(225, 5, 8, 13)},
-                  null,
-                  Shader.TileMode.CLAMP));
+          p.setShader(shade);
           rect(x, 528, 318, 132, Color.WHITE, 0);
           p.setShader(null);
           icon(w.app, x + 13, 541, 24);
@@ -779,12 +802,12 @@ public class MainActivity extends Activity {
           c.drawCircle(x + 159, 589, 18, p);
           p.setStyle(Paint.Style.FILL);
           p.setColor(Color.WHITE);
-          Path play = new Path();
-          play.moveTo(x + 155, 583);
-          play.lineTo(x + 155, 595);
-          play.lineTo(x + 165, 589);
-          play.close();
-          c.drawPath(play, p);
+          path.reset();
+          path.moveTo(x + 155, 583);
+          path.lineTo(x + 155, 595);
+          path.lineTo(x + 165, 589);
+          path.close();
+          c.drawPath(path, p);
           text(fit(w.title, 288, 13), x + 15, 640, 13, Color.WHITE, false);
           if (w.duration > 0 && w.pos > 0) {
             rect(x, 657, 318, 3, Color.argb(80, 255, 255, 255), 0);
